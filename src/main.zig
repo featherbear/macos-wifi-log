@@ -3,23 +3,20 @@ const ChildProcess = std.process.Child;
 
 const LogStream = struct { eventMessage: []const u8, subsystem: []const u8, processID: c_int, timestamp: []const u8 };
 
-// TODO: Change these values to match the expected event structure
-const AppEvent = struct { timeString: []const u8, exampleBool: bool, exampleString: []const u8, exampleOptionalString: ?[]const u8 };
+const AppEvent = struct { timeString: []const u8, SSID: []const u8 };
 
 const stdout = std.io.getStdOut().writer();
 const stderr = std.io.getStdErr().writer();
 
 pub fn emitEvent(event: AppEvent) !void {
-    // TODO: Change this to match the required log structure
-    try stdout.print("{s},{},{s}\n", .{ event.timeString, event.exampleBool, event.exampleString });
+    try stdout.print("{s},{s}\n", .{ event.timeString, event.SSID });
 }
 
 pub fn main() !void {
     var allocatorBacking = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = allocatorBacking.allocator();
 
-    // TODO: Change this to the desired log predicate
-    const filter = "subsystem == 'com.apple.quicklook'";
+    const filter = "subsystem == 'com.apple.IPConfiguration' AND formatString == '%s: SSID is now %@ (was %@)'";
 
     var proc = ChildProcess.init(&[_][]const u8{
         "/usr/bin/log", "stream", "--style", "ndjson",
@@ -46,12 +43,17 @@ pub fn main() !void {
         const parsed = try std.json.parseFromSlice(LogStream, allocator, buffer[0..bytesRead], .{ .ignore_unknown_fields = true });
         defer parsed.deinit();
 
-        // TODO: Fill in the event structure with your own application logic
-        var evtObject = AppEvent{ .timeString = parsed.value.timestamp, .exampleBool = true, .exampleString = "example string", .exampleOptionalString = null };
+        const needle = "SSID is now ";
+        const startIdx = std.mem.indexOf(u8, parsed.value.eventMessage, needle).? + needle.len;
 
-        // e.g.
-        evtObject.exampleString = parsed.value.eventMessage;
+        const needle2 = " (was ";
+        const needle2Idx = std.mem.indexOfPos(u8, parsed.value.eventMessage, startIdx, needle2).?;
 
+        const evtObject = AppEvent{
+            //
+            .timeString = parsed.value.timestamp,
+            .SSID = parsed.value.eventMessage[startIdx..needle2Idx],
+        };
         try emitEvent(evtObject);
     }
 }
